@@ -16,6 +16,7 @@ if 'step' not in st.session_state:
 
 # --- JINJA2 GENERATOR ENGINE ---
 def generate_mcp_code(api_name, tools, prompts):
+    # Using '{{ "{ " }}' syntax to safely escape curly braces for the final Python file
     template_str = """from mcp.server.fastmcp import FastMCP
 import requests
 import os
@@ -33,13 +34,14 @@ def {{ tool.name }}({% for arg, type in tool.args.items() %}{{ arg }}: {{ type }
     
     # 2. Handle Path Parameters (e.g., /users/{id})
     base_url = "{{ tool.url }}"
-    # We use a copy to avoid sending path params in the body/query again
     remaining_args = args_dict.copy()
     
-    path_params = re.findall(r"\{(.*?)\}", base_url)
+    path_params = re.findall(r"{(.*?)}", base_url)
     for param in path_params:
         if param in remaining_args:
-            base_url = base_url.replace(f"{{ '{' }}{param}{{ '}' }}", str(remaining_args.pop(param)))
+            # Replaces {id} with the actual value in the URL string
+            placeholder = "{" + param + "}"
+            base_url = base_url.replace(placeholder, str(remaining_args.pop(param)))
 
     # 3. Setup Auth
     headers = {}
@@ -76,9 +78,8 @@ if __name__ == "__main__":
     return Template(template_str).render(api_name=api_name, tools=tools, prompts=prompts)
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="MCP Forge Pro", layout="wide")
+st.set_page_config(page_title="MCP Forge Pro", layout="wide", page_icon="⚙️")
 
-# Sidebar for Global Settings
 with st.sidebar:
     st.title("🛠️ MCP Forge")
     st.session_state.api_name = st.text_input("Server Name", st.session_state.api_name)
@@ -91,20 +92,20 @@ with st.sidebar:
 # --- STEP 1: TOOLS & PATH PARAMS ---
 if st.session_state.step == 1:
     st.header("1️⃣ Configure API Tools & Path Params")
-    st.info("💡 Tip: Use `{param_name}` in the URL for dynamic paths (e.g., `/user/{id}`). Make sure `id` is also in the Arguments JSON.")
+    st.info("💡 Tip: Use `{param_name}` in the URL for dynamic paths. Ensure the parameter is in the Arguments JSON.")
     
     with st.form("tool_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Tool Name (Python function name)", "get_repo_details")
+            name = st.text_input("Tool Name", "get_repo_details")
             url = st.text_input("Full URL", "https://api.github.com/repos/{owner}/{repo}")
             method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE"])
         with col2:
             auth = st.selectbox("Auth Mechanism", ["None", "Bearer Token", "API Key (Header)"])
-            auth_val = st.text_input("Env Var Name (for the secret)", "GITHUB_TOKEN")
+            auth_val = st.text_input("Env Var Name", "GITHUB_TOKEN")
             args_raw = st.text_area("Arguments JSON (Key: Type)", '{"owner": "str", "repo": "str"}')
         
-        desc = st.text_area("Tool Description (Visible to LLM)", "Fetches metadata for a specific GitHub repository.")
+        desc = st.text_area("Tool Description", "Fetches metadata for a specific GitHub repository.")
         
         if st.form_submit_button("➕ Add Tool"):
             try:
@@ -113,9 +114,9 @@ if st.session_state.step == 1:
                     "auth": auth, "auth_val": auth_val, 
                     "args": json.loads(args_raw), "desc": desc
                 })
-                st.success(f"Tool '{name}' added successfully!")
+                st.success(f"Tool '{name}' added!")
             except Exception as e:
-                st.error(f"Error parsing JSON Arguments: {e}")
+                st.error(f"Error parsing JSON: {e}")
     
     if st.session_state.tools:
         st.subheader("Current Tools")
@@ -124,34 +125,27 @@ if st.session_state.step == 1:
             st.session_state.step = 2
             st.rerun()
 
-# --- STEP 2: PROMPTS (CHAINING) ---
+# --- STEP 2: PROMPTS ---
 elif st.session_state.step == 2:
     st.header("2️⃣ Design Chained Prompts")
-    st.info("Direct the LLM on how to use your tools. Chaining happens when your prompt template mentions tool names.")
     
     with st.form("prompt_form", clear_on_submit=True):
         p_name = st.text_input("Prompt Name", "summarize_repo")
-        p_args = st.text_input("Prompt Arguments (e.g., owner, repo)", "owner, repo")
-        
-        # Chaining helper text
-        tool_list = ", ".join([t['name'] for t in st.session_state.tools])
-        st.caption(f"Available tools: {tool_list}")
-        
-        p_text = st.text_area("Prompt Instruction Template", "Use the get_repo_details tool for {owner}/{repo} and summarize the star count and description.")
-        p_desc = st.text_input("Short Description", "Summarizes a GitHub repo's health.")
+        p_args = st.text_input("Arguments", "owner, repo")
+        p_text = st.text_area("Template", "Use the get_repo_details tool for {owner}/{repo} and summarize it.")
+        p_desc = st.text_input("Short Description", "Summarizes a GitHub repo.")
         
         if st.form_submit_button("➕ Add Prompt"):
             st.session_state.prompts.append({"name": p_name, "args": p_args, "text": p_text, "desc": p_desc})
-            st.success("Prompt added!")
 
     if st.session_state.prompts:
         st.subheader("Current Prompts")
         st.table(st.session_state.prompts)
-        col_prev, col_next = st.columns([1, 1])
+        col_prev, col_next = st.columns(2)
         if col_prev.button("⬅️ Back"):
             st.session_state.step = 1
             st.rerun()
-        if col_next.button("Generate Final Server Code 🚀"):
+        if col_next.button("Generate Code 🚀"):
             st.session_state.step = 3
             st.rerun()
 
@@ -171,28 +165,7 @@ elif st.session_state.step == 3:
     
     st.markdown("---")
     st.subheader("🚀 Deployment Instructions")
-    
-    tab1, tab2, tab3 = st.tabs(["Local (FastMCP)", "Docker", "Claude Desktop"])
-    
-    with tab1:
-        st.markdown("Run this in your terminal to start the server immediately:")
-        st.code(f"pip install fastmcp requests\nfastmcp run {st.session_state.api_name.lower()}_server.py")
-        
-    with tab2:
-        docker_code = f"""FROM python:3.11-slim
-RUN pip install fastmcp requests
-COPY {st.session_state.api_name.lower()}_server.py .
-CMD ["python", "{st.session_state.api_name.lower()}_server.py"]"""
-        st.code(docker_code, language="dockerfile")
-        
-    with tab3:
-        st.write("Add this to your `claude_desktop_config.json`:")
-        config_json = {
-            "mcpServers": {
-                st.session_state.api_name.lower(): {
-                    "command": "python",
-                    "args": [os.path.abspath(f"{st.session_state.api_name.lower()}_server.py")]
-                }
-            }
-        }
-        st.json(config_json)
+    t1, t2, t3 = st.tabs(["Local", "Docker", "Claude"])
+    with t1: st.code(f"pip install fastmcp requests\nfastmcp run {st.session_state.api_name.lower()}_server.py")
+    with t2: st.code(f"FROM python:3.11-slim\nRUN pip install fastmcp requests\nCOPY {st.session_state.api_name.lower()}_server.py .\nCMD [\"python\", \"{st.session_state.api_name.lower()}_server.py\"]", language="dockerfile")
+    with t3: st.json({"mcpServers": {st.session_state.api_name.lower(): {"command": "python", "args": [os.path.abspath(f"{st.session_state.api_name.lower()}_server.py")]}}})
