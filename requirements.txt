@@ -1,4 +1,6 @@
 streamlit
+pyyaml
 jinja2
 requests
-yaml
+pydantic
+fastmcp
