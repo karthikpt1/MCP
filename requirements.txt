@@ -4,3 +4,5 @@ jinja2
 requests
 pydantic
 fastmcp
+urllib3
+openai
