@@ -17,9 +17,13 @@ if 'models' not in st.session_state:
 if 'api_name' not in st.session_state:
     st.session_state.api_name = "MyAPI"
 if 'step' not in st.session_state:
-    st.session_state.step = 1
+    st.session_state.step = 0
 if 'swagger_selection' not in st.session_state:
     st.session_state.swagger_selection = {}
+if 'swagger_text' not in st.session_state:
+    st.session_state.swagger_text = ""
+if 'wsdl_text' not in st.session_state:
+    st.session_state.wsdl_text = ""
 
 # ------------------------------------------------------------------
 # SWAGGER / OPENAPI PARSER WITH AUTH + PYDANTIC
@@ -141,6 +145,9 @@ def swagger_to_tools(swagger_text):
         spec = json.loads(swagger_text)
     except json.JSONDecodeError:
         spec = yaml.safe_load(swagger_text)
+    
+    if spec is None:
+        return [], {}
 
     tools = []
     models = {}
@@ -490,59 +497,187 @@ if __name__ == "__main__":
 
 st.set_page_config(page_title="MCP Forge Pro", layout="wide", page_icon="⚙️")
 
+# ===== SIDEBAR NAVIGATION =====
 with st.sidebar:
     st.title("🛠️ MCP Forge")
-    st.session_state.api_name = st.text_input("Server Name", st.session_state.api_name)
     st.markdown("---")
-    if st.button("Reset Entire Project", type="primary", key="reset_project"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+    
+    if st.button("🏠 Home", use_container_width=True, key="btn_home", type="secondary"):
+        st.session_state.step = 0
         st.rerun()
+    
+    if st.button("⚡ Quick Start", use_container_width=True, key="quickstart", type="primary", disabled=st.session_state.step > 0):
+        st.session_state.step = 1
+        st.rerun()
+    
+    # Reset button only enabled from step 1 onwards
+    if st.session_state.step >= 1:
+        if st.button("🔄 Reset", use_container_width=True, key="reset_project", type="secondary"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.session_state.step = 1
+            st.rerun()
+    
+    st.markdown("---")
+
+# ============ STEP 0: HOME SCREEN ============
+if st.session_state.step == 0:
+    st.title("🚀 Welcome to MCP Forge Pro")
+    st.markdown("""
+    ### Convert REST APIs into MCP Servers in 3 Steps
+    
+    **MCP Forge Pro** automates the generation of production-ready Model Context Protocol (MCP) servers 
+    from your REST APIs. No more manual coding—just paste your OpenAPI/Swagger spec and let the tool handle the rest.
+    """)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("📡", "APIs Supported", "OpenAPI 3.0 & Swagger 2.0")
+    with col2:
+        st.metric("🚢", "Deploy Anywhere", "Local, Docker, Claude Desktop")
+    
+    st.markdown("---")
+    
+    st.subheader("📋 How It Works")
+    
+    step1, step2, step3 = st.columns(3)
+    
+    with step1:
+        st.markdown("""
+        ### Step 1: Import API
+        
+        - Paste your OpenAPI/Swagger spec
+        - Or manually add individual endpoints
+        - Select which APIs to include
+        """)
+    
+    with step2:
+        st.markdown("""
+        ### Step 2: Design Prompts 🚧
+        
+        - Auto-generate prompt templates
+        - Or write custom prompts
+        - Define arguments and context
+        
+        *Coming up...*
+        """)
+    
+    with step3:
+        st.markdown("""
+        ### Step 3: Generate & Deploy
+        
+        - Get production-ready Python code
+        - Choose deployment: Local, Docker, or Claude Desktop
+        - Download & run instantly
+        """)
+    
+    st.markdown("---")
+    
+    st.subheader("✨ Key Features")
+    
+    features = {
+        "🔗 Full API Parsing": "Automatically extracts endpoints, parameters, and request bodies from OpenAPI/Swagger specs",
+        "🛡️ HTTP Resilience": "Built-in retry logic with exponential backoff for reliable API calls",
+        "🔐 Auth Support": "Handles Bearer Token, API Key, and header authentication automatically",
+        "📦 Pydantic Models": "Generates type-safe request/response models for all API parameters",
+        "⚙️ FastMCP Integration": "Wraps APIs as MCP tools—ready to use with Claude and other AI models",
+        "🚀 Multiple Deployments": "Local execution, Docker containers, Docker Compose, and Claude Desktop configs",
+        "🤖 Prompt Templates": "Auto-generate or customize prompt templates for each API tool",
+        "📥 One-Click Download": "Export complete server code and deployment configs in seconds"
+    }
+    
+    for feature, description in features.items():
+        st.markdown(f"**{feature}** — {description}")
+    
+    st.markdown("---")
+    st.markdown("### 🎯 Ready to Get Started?")
+    
+    st.info("ℹ️ Use the Quick Start button in the header to begin.")
 
 # ---------------- STEP 1 ----------------
-if st.session_state.step == 1:
+elif st.session_state.step == 1:
     st.header("1️⃣ Configure API Tools")
+    
+    st.caption("💡 **Tips:** Keep your server name short (e.g., 'github', 'slack') - it'll be used for file naming and deployment")
+    st.session_state.api_name = st.text_input("MCP Server Name", st.session_state.api_name)
+    
+    st.markdown("---")
+    
     mode = st.radio("Tool Creation Mode", ["Import from OpenAPI / Swagger", "Import from SOAP / Wsdl", "Manual Entry"], horizontal=True)
 
     if mode == "Import from OpenAPI / Swagger":
-        swagger_text = st.text_area("Paste OpenAPI / Swagger", height=300)
-        if st.button("📥 Load APIs", key="load_swagger"):
-            tools, models = swagger_to_tools(swagger_text)
-            st.session_state.all_swagger_tools = tools
-            st.session_state.models.update(models)
-            st.session_state.swagger_selection = {t["name"]: False for t in tools}
-            st.success(f"Loaded {len(tools)} API endpoints from Swagger")
-
+        # Only show text area if APIs haven't been loaded yet
+        if "all_swagger_tools" not in st.session_state or not st.session_state.all_swagger_tools:
+            st.session_state.swagger_text = st.text_area("Paste OpenAPI / Swagger", height=300, value=st.session_state.swagger_text)
+            
+            # Disable button if text area is empty
+            if st.button("📥 Load APIs", key="load_swagger", type="primary", disabled=not st.session_state.swagger_text.strip()):
+                try:
+                    tools, models = swagger_to_tools(st.session_state.swagger_text)
+                    if not tools:
+                        st.warning("⚠️ No API endpoints found in the Swagger/OpenAPI spec. Please check the file and make sure it contains valid paths.")
+                    else:
+                        st.session_state.all_swagger_tools = tools
+                        st.session_state.models.update(models)
+                        st.session_state.swagger_selection = {t["name"]: False for t in tools}
+                        st.session_state.swagger_text = ""  # Clear to free memory
+                        st.success(f"✅ Loaded {len(tools)} API endpoints from Swagger")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Invalid Swagger/OpenAPI specification: {str(e)}\n\nPlease paste a valid OpenAPI 3.0 or Swagger 2.0 JSON/YAML file.")
+        
         if "all_swagger_tools" in st.session_state and st.session_state.all_swagger_tools:
+            st.info("✅ APIs loaded successfully! Select the ones you want to add below.")
             st.markdown("### ✅ Select APIs to Add as Tools")
             for t in st.session_state.all_swagger_tools:
                 label = f"**{t['method']}** `{t['url']}` — {t['desc']}"
                 st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_{t['name']}")
 
-            if st.button("⚙️ Generate Selected Tools", key="generate_tools_selected"):
+            if st.button("⚙️ Generate Selected Tools", key="generate_tools_selected", type="primary"):
                 selected_tools = [t for t in st.session_state.all_swagger_tools if st.session_state.swagger_selection.get(t["name"], False)]
-                st.session_state.tools.extend(selected_tools)
-                st.success(f"Added {len(selected_tools)} selected tools")
+                # Only add tools that aren't already in the tools list
+                existing_tool_names = {t["name"] for t in st.session_state.tools}
+                new_tools = [t for t in selected_tools if t["name"] not in existing_tool_names]
+                st.session_state.tools.extend(new_tools)
+                if new_tools:
+                    st.success(f"Added {len(new_tools)} new tools")
+                if len(selected_tools) > len(new_tools):
+                    st.info(f"⚠️ {len(selected_tools) - len(new_tools)} tool(s) were already added")
 
     if mode == "Import from SOAP / Wsdl":
-        wsdl_text = st.text_area("Paste SOAP / WSDL Definition", height=300)
-        if st.button("📥 Load APIs", key="load_wsdl"):
-            tools, models = wsdl_to_tools(wsdl_text)
-            st.session_state.all_wsdl_tools = tools
-            st.session_state.models.update(models)
-            st.session_state.swagger_selection = {t["name"]: False for t in tools}
-            st.success(f"Loaded {len(tools)} API endpoints from Swagger")
-
-        if "all_swagger_tools" in st.session_state and st.session_state.all_swagger_tools:
+        st.session_state.wsdl_text = st.text_area("Paste SOAP / WSDL Definition", height=300, value=st.session_state.wsdl_text)
+        
+        # Disable button if text area is empty
+        if st.button("📥 Load APIs", key="load_wsdl", type="primary", disabled=not st.session_state.wsdl_text.strip()):
+            try:
+                tools, models = wsdl_to_tools(st.session_state.wsdl_text)
+                if not tools:
+                    st.warning("⚠️ No API endpoints found in the WSDL spec. Please check the file and make sure it contains valid service definitions.")
+                else:
+                    st.session_state.all_wsdl_tools = tools
+                    st.session_state.models.update(models)
+                    st.session_state.swagger_selection = {t["name"]: False for t in tools}
+                    st.session_state.wsdl_text = ""  # Clear to free memory
+                    st.success(f"✅ Loaded {len(tools)} API endpoints from WSDL")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Invalid WSDL specification: {str(e)}\n\nPlease paste a valid WSDL XML file.")
+            st.info("✅ APIs loaded successfully! Select the ones you want to add below.")
             st.markdown("### ✅ Select APIs to Add as Tools")
-            for t in st.session_state.all_swagger_tools:
+            for t in st.session_state.all_wsdl_tools:
                 label = f"**{t['method']}** `{t['url']}` — {t['desc']}"
                 st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_{t['name']}")
 
-            if st.button("⚙️ Generate Selected Tools", key="generate_tools_selected"):
-                selected_tools = [t for t in st.session_state.all_swagger_tools if st.session_state.swagger_selection.get(t["name"], False)]
-                st.session_state.tools.extend(selected_tools)
-                st.success(f"Added {len(selected_tools)} selected tools")
+            if st.button("⚙️ Generate Selected Tools WSDL", key="generate_tools_wsdl", type="primary"):
+                selected_tools = [t for t in st.session_state.all_wsdl_tools if st.session_state.swagger_selection.get(t["name"], False)]
+                # Only add tools that aren't already in the tools list
+                existing_tool_names = {t["name"] for t in st.session_state.tools}
+                new_tools = [t for t in selected_tools if t["name"] not in existing_tool_names]
+                st.session_state.tools.extend(new_tools)
+                if new_tools:
+                    st.success(f"Added {len(new_tools)} new tools")
+                if len(selected_tools) > len(new_tools):
+                    st.info(f"⚠️ {len(selected_tools) - len(new_tools)} tool(s) were already added")
 
     elif mode == "Manual Entry":
         with st.form("tool_form", clear_on_submit=True):
@@ -556,21 +691,27 @@ if st.session_state.step == 1:
                 auth_val = st.text_input("Env Var Name", "API_TOKEN")
                 args_raw = st.text_area("Arguments JSON", '{"owner": "str"}')
             desc = st.text_area("Tool Description", "Description")
-            if st.form_submit_button("➕ Add Tool"):
+            if st.form_submit_button("➕ Add Tool", type="primary"):
                 st.session_state.tools.append({"name": name, "url": url, "method": method, "auth": auth, "auth_val": auth_val, "args": json.loads(args_raw), "body_model": None, "desc": desc})
 
     if st.session_state.tools:
         st.subheader("✅ Current Tools")
         st.table(st.session_state.tools)
-        if st.button("Next ➡️", key="next_step1"):
-            st.session_state.step = 2
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← Back", key="back_step1", type="secondary"):
+                st.session_state.step = 0
+                st.rerun()
+        with col2:
+            if st.button("Next ➡️", key="next_step1", type="primary"):
+                st.session_state.step = 2
+                st.rerun()
 
 # ---------------- STEP 2 ----------------
 elif st.session_state.step == 2:
     st.header("2️⃣ Design Prompts")
 
-    if st.button("🤖 Auto-Generate Diverse Prompts from Tools"):
+    if st.button("🤖 Auto-Generate Diverse Prompts from Tools", type="primary"):
         with st.spinner("Generating prompts using LLM..."):
             auto_prompts = auto_generate_prompts(st.session_state.tools)
             st.session_state.prompts.extend(auto_prompts)
@@ -580,12 +721,20 @@ elif st.session_state.step == 2:
         name = st.text_input("Prompt Name", "summarize")
         args = st.text_input("Arguments", "id")
         text = st.text_area("Prompt Template", "Summarize the result")
-        if st.form_submit_button("➕ Add Prompt"):
+        if st.form_submit_button("➕ Add Prompt", type="primary"):
             st.session_state.prompts.append({"name": name, "args": args, "text": text, "desc": "Prompt"})
 
     if st.session_state.prompts:
         st.table(st.session_state.prompts)
-        if st.button("Generate Code 🚀", key="generate_code"):
+    
+    # Navigation buttons always available
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← Back", key="back_step2", use_container_width=True, type="secondary"):
+            st.session_state.step = 1
+            st.rerun()
+    with col2:
+        if st.button("Generate Code 🚀", key="generate_code", use_container_width=True, type="primary"):
             st.session_state.step = 3
             st.rerun()
 
@@ -597,7 +746,7 @@ elif st.session_state.step == 3:
     code = generate_mcp_code(st.session_state.api_name, st.session_state.tools, st.session_state.prompts, st.session_state.models)
 
     st.code(code, language="python")
-    st.download_button("💾 Download Python Server", code, filename)
+    st.download_button("💾 Download Python Server", code, filename, type="primary")
 
     secrets = list(set(t["auth_val"] for t in st.session_state.tools if t["auth"] != "None"))
 
@@ -616,11 +765,28 @@ RUN pip install fastmcp requests pydantic
 COPY {filename} .
 CMD ["python", "{filename}"]"""
         st.code(dockerfile, "dockerfile")
-        st.download_button("💾 Download Dockerfile", dockerfile, "Dockerfile")
+        st.download_button("💾 Download Dockerfile", dockerfile, "Dockerfile", type="primary")
 
     with t4:
         compose = "version: '3.8'\nservices:\n  mcp:\n    build: .\n    environment:\n"
         for s in secrets:
             compose += f"      - {s}=${{{s}}}\n"
         st.code(compose, "yaml")
-        st.download_button("💾 Download docker-compose.yml", compose, "docker-compose.yml")
+        st.download_button("💾 Download docker-compose.yml", compose, "docker-compose.yml", type="primary")
+    
+    st.markdown("---")
+    st.subheader("🔄 Modify Your Configuration")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("← Reconfigure Tools", use_container_width=True, key="back_to_tools", type="secondary"):
+            st.session_state.step = 1
+            st.rerun()
+    
+    with col2:
+        if st.button("← Back to Prompts", use_container_width=True, key="back_step3", type="secondary"):
+            st.session_state.step = 2
+            st.rerun()
+    
+    with col3:
+        pass  # Placeholder for alignment
