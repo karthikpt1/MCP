@@ -1,0 +1,156 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Metering Labels API",
+    "version": "1.0.0"
+  },
+  "host": "api.openstack.example.com",
+  "basePath": "/v2.0",
+  "schemes": [
+    "https"
+  ],
+  "paths": {
+    "/metering/metering-labels": {
+      "get": {
+        "operationId": "listMeteringLabels",
+        "summary": "List all metering labels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of metering labels"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMeteringLabel",
+        "summary": "Create a new metering label",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "rules": {"type": "array"}
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Metering label created"
+          }
+        }
+      }
+    },
+    "/metering/metering-labels/{metering_label_id}": {
+      "get": {
+        "operationId": "getMeteringLabel",
+        "summary": "Get a metering label by ID",
+        "parameters": [
+          {
+            "name": "metering_label_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metering label details"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMeteringLabel",
+        "summary": "Delete a metering label",
+        "parameters": [
+          {
+            "name": "metering_label_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metering label deleted"
+          }
+        }
+      }
+    },
+    "/metering/metering-label-rules": {
+      "get": {
+        "operationId": "listMeteringLabelRules",
+        "summary": "List all metering label rules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of rules"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMeteringLabelRule",
+        "summary": "Create a new metering label rule",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"}
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Rule created"
+          }
+        }
+      }
+    },
+    "/metering/metering-label-rules/{metering-label-rule-id}": {
+      "get": {
+        "operationId": "getMeteringLabelRule",
+        "summary": "Get a metering label rule by ID",
+        "parameters": [
+          {
+            "name": "metering-label-rule-id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rule details"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMeteringLabelRule",
+        "summary": "Delete a metering label rule",
+        "parameters": [
+          {
+            "name": "metering-label-rule-id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rule deleted"
+          }
+        }
+      }
+    }
+  }
+}

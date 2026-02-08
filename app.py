@@ -156,16 +156,67 @@ def swagger_to_tools(swagger_text):
 
     is_openapi = "openapi" in spec
 
+    # --- VALIDATION: Check required fields (Issue #4) ---
     if is_openapi:
+        # OpenAPI 3.0 requires servers field
         servers = spec.get("servers", [])
-        if servers:
-            base_url = servers[0].get("url", "")
+        if not servers or len(servers) == 0:
+            raise ValueError(
+                "❌ **OpenAPI spec missing 'servers' field**\n\n"
+                "OpenAPI 3.0 requires at least one server. Example:\n"
+                "```json\n"
+                '"servers": [{"url": "https://api.example.com/v1"}]\n'
+                "```\n\n"
+                "See: https://swagger.io/specification/#servers-object"
+            )
+        base_url = servers[0].get("url", "")
+        if not base_url:
+            raise ValueError(
+                "❌ **First server object has empty 'url'**\n\n"
+                "Provide a valid server URL. Example:\n"
+                "```json\n"
+                '"servers": [{"url": "https://api.example.com/v1"}]\n'
+                "```"
+            )
         paths = spec.get("paths", {})
         security_schemes = spec.get("components", {}).get("securitySchemes", {})
     else:
-        schemes = spec.get("schemes", ["https"])
+        # Swagger 2.0 requires host, schemes, basePath
         host = spec.get("host", "")
+        schemes = spec.get("schemes", [])
         base_path = spec.get("basePath", "")
+        
+        # Validation: Check for required fields (Issue #4)
+        if not host:
+            raise ValueError(
+                "❌ **Swagger spec missing required 'host' field**\n\n"
+                "Add the 'host' field to your Swagger spec. Example:\n"
+                "```json\n"
+                '"host": "api.example.com",\n'
+                '"schemes": ["https"],\n'
+                '"basePath": "/v2.0"\n'
+                "```\n\n"
+                "See: https://swagger.io/specification/v2/#fixed-fields"
+            )
+        if not schemes or len(schemes) == 0:
+            raise ValueError(
+                "❌ **Swagger spec missing 'schemes' field**\n\n"
+                "Specify the protocol scheme. Example:\n"
+                "```json\n"
+                '"schemes": ["https"]\n'
+                "```"
+            )
+        if "basePath" not in spec:
+            raise ValueError(
+                "❌ **Swagger spec missing 'basePath' field**\n\n"
+                "Add the base path for your API. Example:\n"
+                "```json\n"
+                '"basePath": "/v2.0"\n'
+                "```\n\n"
+                "If your API has no version path, use: `\"basePath\": \"/\"`"
+            )
+        
+        # Construct base_url with validation (Issue #1)
         base_url = f"{schemes[0]}://{host}{base_path}"
         paths = spec.get("paths", {})
         security_schemes = spec.get("securityDefinitions", {})
@@ -611,13 +662,13 @@ if st.session_state.step == 0:
     
     with step2:
         st.markdown("""
-        ### Step 2: Design Prompts 🚧
+        ### Step 2: Design Prompts ✅
         
-        - Auto-generate prompt templates
+        - Auto-generate prompt templates with LLM
         - Or write custom prompts
-        - Define arguments and context
+        - Edit and refine each prompt template
         
-        *Coming up...*
+        *Choose OpenAI or Groq for generation*
         """)
     
     with step3:
@@ -687,9 +738,9 @@ elif st.session_state.step == 1:
         if "all_swagger_tools" in st.session_state and st.session_state.all_swagger_tools:
             st.info("✅ APIs loaded successfully! Select the ones you want to add below.")
             st.markdown("### ✅ Select APIs to Add as Tools")
-            for t in st.session_state.all_swagger_tools:
+            for idx, t in enumerate(st.session_state.all_swagger_tools):
                 label = f"**{t['method']}** `{t['url']}` — {t['desc']}"
-                st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_{t['name']}")
+                st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_swagger_{idx}_{t['name']}")
 
             if st.button("⚙️ Generate Selected Tools", key="generate_tools_selected", type="primary"):
                 selected_tools = [t for t in st.session_state.all_swagger_tools if st.session_state.swagger_selection.get(t["name"], False)]
@@ -722,9 +773,9 @@ elif st.session_state.step == 1:
                 st.error(f"❌ Invalid WSDL specification: {str(e)}\n\nPlease paste a valid WSDL XML file.")
             st.info("✅ APIs loaded successfully! Select the ones you want to add below.")
             st.markdown("### ✅ Select APIs to Add as Tools")
-            for t in st.session_state.all_wsdl_tools:
+            for idx, t in enumerate(st.session_state.all_wsdl_tools):
                 label = f"**{t['method']}** `{t['url']}` — {t['desc']}"
-                st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_{t['name']}")
+                st.session_state.swagger_selection[t["name"]] = st.checkbox(label, value=st.session_state.swagger_selection.get(t["name"], False), key=f"cb_wsdl_{idx}_{t['name']}")
 
             if st.button("⚙️ Generate Selected Tools WSDL", key="generate_tools_wsdl", type="primary"):
                 selected_tools = [t for t in st.session_state.all_wsdl_tools if st.session_state.swagger_selection.get(t["name"], False)]
@@ -754,7 +805,50 @@ elif st.session_state.step == 1:
 
     if st.session_state.tools:
         st.subheader("✅ Current Tools")
-        st.table(st.session_state.tools)
+        for idx, tool in enumerate(st.session_state.tools):
+            with st.expander(f"⚙️ {tool['name']} | {tool['method']} {tool['url']}", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.session_state.tools[idx]["name"] = st.text_input(
+                        "Tool Name",
+                        value=tool["name"],
+                        key=f"edit_tool_name_{idx}"
+                    )
+                    st.session_state.tools[idx]["url"] = st.text_input(
+                        "Full URL",
+                        value=tool["url"],
+                        key=f"edit_tool_url_{idx}"
+                    )
+                    st.session_state.tools[idx]["method"] = st.selectbox(
+                        "HTTP Method",
+                        ["GET", "POST", "PUT", "DELETE"],
+                        index=["GET", "POST", "PUT", "DELETE"].index(tool["method"]),
+                        key=f"edit_tool_method_{idx}"
+                    )
+                with col2:
+                    st.session_state.tools[idx]["auth"] = st.selectbox(
+                        "Auth Mechanism",
+                        ["None", "Bearer Token", "API Key (Header)"],
+                        index=["None", "Bearer Token", "API Key (Header)"].index(tool["auth"]),
+                        key=f"edit_tool_auth_{idx}"
+                    )
+                    st.session_state.tools[idx]["auth_val"] = st.text_input(
+                        "Env Var Name",
+                        value=tool["auth_val"],
+                        key=f"edit_tool_auth_val_{idx}"
+                    )
+                
+                st.session_state.tools[idx]["desc"] = st.text_area(
+                    "Tool Description",
+                    value=tool["desc"],
+                    height=100,
+                    key=f"edit_tool_desc_{idx}"
+                )
+                
+                if st.button("🗑️ Delete Tool", key=f"delete_tool_{idx}", type="secondary"):
+                    st.session_state.tools.pop(idx)
+                    st.rerun()
+        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("← Back", key="back_step1", type="secondary"):
@@ -811,7 +905,39 @@ elif st.session_state.step == 2:
             st.session_state.prompts.append({"name": name, "args": args, "text": text, "desc": "Prompt"})
 
     if st.session_state.prompts:
-        st.table(st.session_state.prompts)
+        st.subheader("📋 Prompts List")
+        for idx, prompt in enumerate(st.session_state.prompts):
+            preview_text = prompt['text'][:80].replace('\n', ' ') + ('...' if len(prompt['text']) > 80 else '')
+            with st.expander(f"✏️ {prompt['name']} | {preview_text}", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.session_state.prompts[idx]["name"] = st.text_input(
+                        "Prompt Name",
+                        value=prompt["name"],
+                        key=f"edit_name_{idx}"
+                    )
+                    st.session_state.prompts[idx]["args"] = st.text_input(
+                        "Arguments",
+                        value=prompt["args"],
+                        key=f"edit_args_{idx}"
+                    )
+                with col2:
+                    st.session_state.prompts[idx]["desc"] = st.text_input(
+                        "Description",
+                        value=prompt.get("desc", ""),
+                        key=f"edit_desc_{idx}"
+                    )
+                
+                st.session_state.prompts[idx]["text"] = st.text_area(
+                    "Prompt Template",
+                    value=prompt["text"],
+                    height=150,
+                    key=f"edit_text_{idx}"
+                )
+                
+                if st.button("🗑️ Delete", key=f"delete_{idx}", type="secondary"):
+                    st.session_state.prompts.pop(idx)
+                    st.rerun()
     
     # Navigation buttons always available
     col1, col2 = st.columns(2)
@@ -839,26 +965,69 @@ elif st.session_state.step == 3:
     t1, t2, t3, t4 = st.tabs(["Local Execution", "Claude Desktop", "Dockerfile", "Docker Compose"])
 
     with t1:
-        st.code("pip install fastmcp requests pydantic\npython " + filename)
+        local_cmd = f"""# Create virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate  # macOS/Linux or: venv\\Scripts\\activate (Windows)
+
+# Install dependencies
+pip install fastmcp requests pydantic urllib3
+
+# Set authentication (if needed)"""
+        if secrets:
+            for s in secrets:
+                local_cmd += f"\nexport {s}='your-token-here'"
+        local_cmd += f"\n\n# Run the MCP server\npython3 {filename}"
+        st.code(local_cmd)
 
     with t2:
-        st.json({"mcpServers": {st.session_state.api_name.lower(): {"command": "python", "args": [filename], "env": {s: "YOUR_TOKEN" for s in secrets}}}})
+        st.markdown("**File location:** `~/.config/Claude/claude_desktop_config.json` (or `%APPDATA%\\\\Claude\\\\claude_desktop_config.json` on Windows)")
+        claude_config = {"mcpServers": {st.session_state.api_name.lower(): {"command": "python3", "args": [filename], "env": {s: "YOUR_ACTUAL_TOKEN" for s in secrets} if secrets else {}}}}
+        st.json(claude_config)
+        st.info("💡 Replace 'YOUR_ACTUAL_TOKEN' values with your real credentials before using in Claude Desktop.")
 
     with t3:
+        env_vars = ""
+        if secrets:
+            env_vars = "\n".join([f"ENV {s}=YOUR_TOKEN_{i}" for i, s in enumerate(secrets)])
+            env_vars = "\n" + env_vars + "\n"
         dockerfile = f"""FROM python:3.11-slim
 WORKDIR /app
-RUN pip install fastmcp requests pydantic
+
+# Install dependencies
+RUN pip install --no-cache-dir fastmcp requests pydantic urllib3
+
+# Copy server file
 COPY {filename} .
-CMD ["python", "{filename}"]"""
+{env_vars if env_vars else ""}
+# Run with python3 explicitly
+CMD ["python3", "{filename}"]"""
         st.code(dockerfile, "dockerfile")
         st.download_button("💾 Download Dockerfile", dockerfile, "Dockerfile", type="primary")
 
     with t4:
-        compose = "version: '3.8'\nservices:\n  mcp:\n    build: .\n    environment:\n"
-        for s in secrets:
-            compose += f"      - {s}=${{{s}}}\n"
+        compose = f"""version: '3.8'
+services:
+  mcp:
+    build: .
+    container_name: {st.session_state.api_name.lower()}_server
+    environment:"""
+        if secrets:
+            for s in secrets:
+                compose += f"\n      - {s}=${{{s}}}"
+        else:
+            compose += "\n      {}"
+        compose += "\n    restart: unless-stopped"
         st.code(compose, "yaml")
         st.download_button("💾 Download docker-compose.yml", compose, "docker-compose.yml", type="primary")
+        
+        st.markdown("### .env file (create in same directory):")
+        env_content = ""
+        if secrets:
+            env_content = "\n".join([f"{s}=your_actual_token_here" for s in secrets])
+        else:
+            env_content = "# No authentication required"
+        st.code(env_content, "bash")
+        st.markdown("**Run with:** `docker-compose up -d`")
     
     st.markdown("---")
     st.subheader("🔄 Modify Your Configuration")
