@@ -373,12 +373,9 @@ def auto_generate_prompts(tools, api_key=None, provider="openai"):
     joined = "\n\n---\n\n".join(tool_descriptions)
 
     user_msg = f"""
-    For each API tool below, generate three distinct prompt templates:
-    1) Summarize output intent,
-    2) Analyze possible errors and how to handle them,
-    3) Compare results or give context to output.
+    For each API tool below, generate exactly ONE useful prompt template that describes how to use the tool effectively.
 
-    For each template, return only the text. Label them clearly.
+    For each template, return only the text. Label it clearly with the tool name.
 
     Tools:
     {joined}
@@ -391,7 +388,7 @@ def auto_generate_prompts(tools, api_key=None, provider="openai"):
             {"role": "user", "content": user_msg}
         ],
         temperature=0.7,
-        max_tokens=1500
+        max_tokens=800
     )
 
     text = response.choices[0].message.content.strip()
