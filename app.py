@@ -282,11 +282,21 @@ def swagger_to_tools(swagger_text):
 
 from openai import OpenAI
 
-def auto_generate_prompts(tools):
+def auto_generate_prompts(tools, api_key=None, provider="openai"):
     """
     Batch send all tools to the LLM and get multiple prompt templates for each.
+    Supports both OpenAI and Groq providers.
     """
-    client = OpenAI()
+    if provider == "groq":
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        model = "llama-3.1-8b-instant"
+    else:
+        if api_key:
+            client = OpenAI(api_key=api_key)
+        else:
+            client = OpenAI()
+        model = "gpt-4o"
 
     instructions = [
         {
@@ -317,7 +327,7 @@ def auto_generate_prompts(tools):
     """
 
     response = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model=model,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates API prompts."},
             {"role": "user", "content": user_msg}
@@ -330,21 +340,53 @@ def auto_generate_prompts(tools):
 
     all_prompts = []
     current_tool = None
+    tool_prompt_lines = []
     lines = text.split("\n")
+    
     for line in lines:
-        if line.startswith("Tool:"):
-            current_tool = line.replace("Tool:", "").strip()
-        elif line and current_tool:
-            parts = line.split(":", 1)
-            if len(parts) == 2:
-                prompt_text = parts[1].strip()
+        line = line.strip()
+        
+        # Skip empty lines and common formatting
+        if not line or line in ["---", "---", "****"]:
+            continue
+        
+        # Detect tool headers (multiple formats: "Tool:", "### Tool:", "**Tool:")
+        is_tool_header = any(tool["name"].lower() in line.lower() for tool in tools)
+        
+        if is_tool_header:
+            # Save previous tool's prompt if exists
+            if current_tool and tool_prompt_lines:
+                combined_text = " ".join(tool_prompt_lines)
                 all_prompts.append({
-                    "name": f"{current_tool}_auto",
+                    "name": current_tool,
                     "args": "",
-                    "text": prompt_text,
-                    "desc": f"Auto prompt for {current_tool}"
+                    "text": combined_text,
+                    "desc": f"Auto-generated prompt for {current_tool}"
                 })
-
+            
+            # Extract tool name from the line
+            for tool in tools:
+                if tool["name"].lower() in line.lower():
+                    current_tool = tool["name"]
+                    tool_prompt_lines = []
+                    break
+        # Skip metadata lines
+        elif line.lower().startswith("for each") or line.lower().startswith("tools:"):
+            continue
+        # Capture non-empty lines as part of the current tool's prompt
+        elif current_tool and len(line) > 5:  # Avoid single-word lines
+            tool_prompt_lines.append(line)
+    
+    # Don't forget the last tool
+    if current_tool and tool_prompt_lines:
+        combined_text = " ".join(tool_prompt_lines)
+        all_prompts.append({
+            "name": current_tool,
+            "args": "",
+            "text": combined_text,
+            "desc": f"Auto-generated prompt for {current_tool}"
+        })
+    
     return all_prompts
 
 
@@ -503,10 +545,26 @@ with st.sidebar:
     st.markdown("---")
     
     if st.button("🏠 Home", use_container_width=True, key="btn_home", type="secondary"):
+        # Clean everything when returning home
+        st.session_state.tools = []
+        st.session_state.prompts = []
+        st.session_state.models = {}
+        st.session_state.api_name = "MyAPI"
+        st.session_state.swagger_selection = {}
+        st.session_state.swagger_text = ""
+        st.session_state.wsdl_text = ""
         st.session_state.step = 0
         st.rerun()
     
     if st.button("⚡ Quick Start", use_container_width=True, key="quickstart", type="primary", disabled=st.session_state.step > 0):
+        # Clean slate
+        st.session_state.tools = []
+        st.session_state.prompts = []
+        st.session_state.models = {}
+        st.session_state.api_name = "MyAPI"
+        st.session_state.swagger_selection = {}
+        st.session_state.swagger_text = ""
+        st.session_state.wsdl_text = ""
         st.session_state.step = 1
         st.rerun()
     
@@ -711,11 +769,39 @@ elif st.session_state.step == 1:
 elif st.session_state.step == 2:
     st.header("2️⃣ Design Prompts")
 
-    if st.button("🤖 Auto-Generate Diverse Prompts from Tools", type="primary"):
-        with st.spinner("Generating prompts using LLM..."):
-            auto_prompts = auto_generate_prompts(st.session_state.tools)
-            st.session_state.prompts.extend(auto_prompts)
-        st.success(f"Generated {len(auto_prompts)} prompt templates!")
+    st.info("💡 Choose your LLM provider for prompt generation. Groq is free and fast!")
+    
+    col1, col2, col3 = st.columns([1.5, 1.5, 1])
+    with col1:
+        provider = st.selectbox("LLM Provider", ["openai", "groq"], format_func=lambda x: "🤖 OpenAI (GPT-4o)" if x == "openai" else "⚡ Groq (Mixtral)")
+    with col2:
+        api_key = st.text_input(
+            "API Key",
+            type="password",
+            placeholder="sk-... (OpenAI) or gsk-... (Groq)"
+        )
+    with col3:
+        if st.button("🤖 Generate", type="primary"):
+            if not api_key:
+                st.error("Please enter your API key.")
+            else:
+                with st.spinner("Generating prompts using LLM..."):
+                    try:
+                        auto_prompts = auto_generate_prompts(
+                            st.session_state.tools,
+                            api_key=api_key,
+                            provider=provider
+                        )
+                        st.session_state.prompts.extend(auto_prompts)
+                        st.success(f"Generated {len(auto_prompts)} prompt templates!")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "insufficient_quota" in error_msg or "429" in error_msg:
+                            st.error("❌ Quota Exceeded\n\nCheck your API account billing and try again.")
+                        elif "authentication" in error_msg.lower() or "api" in error_msg.lower():
+                            st.error(f"❌ Authentication Error\n\nCheck that your API key is correct:\n{error_msg}")
+                        else:
+                            st.error(f"Error generating prompts: {error_msg}")
 
     with st.form("prompt_form", clear_on_submit=True):
         name = st.text_input("Prompt Name", "summarize")
