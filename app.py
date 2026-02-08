@@ -436,10 +436,14 @@ Text: [template text with placeholders]
                 # Force prompt name to match tool name for MCP auto-linking
                 if current_tool:
                     current_prompt["name"] = current_tool
+                # Clean up prompt text: replace {{ with { and }} with }
+                cleaned_text = current_prompt["text"].replace("{{", "{").replace("}}", "}")
+                # Remove surrounding quotes if present
+                cleaned_text = cleaned_text.strip('"\'')
                 all_prompts.append({
                     "name": current_prompt["name"],
                     "args": current_prompt["args"],
-                    "text": current_prompt["text"],
+                    "text": cleaned_text,
                     "desc": current_prompt["desc"]
                 })
                 current_prompt = {
@@ -471,10 +475,14 @@ Text: [template text with placeholders]
     
     # Don't forget the last prompt
     if current_prompt["name"] and current_prompt["text"]:
+        # Clean up prompt text: replace {{ with { and }} with }
+        cleaned_text = current_prompt["text"].replace("{{", "{").replace("}}", "}")
+        # Remove surrounding quotes if present
+        cleaned_text = cleaned_text.strip('"\'')
         all_prompts.append({
             "name": current_prompt["name"],
             "args": current_prompt["args"],
-            "text": current_prompt["text"],
+            "text": cleaned_text,
             "desc": current_prompt["desc"]
         })
     
