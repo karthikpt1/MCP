@@ -609,9 +609,14 @@ def {{ tool.name }}({% for arg, type in tool.args.items() %}{{ arg }}: {{ type }
 {% endfor %}
 {% for prompt in prompts %}
 @mcp.prompt()
-def {{ prompt.name }}({{ prompt.args }}):
+def {{ prompt.name }}():
     \"\"\"{{ prompt.desc }}\"\"\"
-    return f\"\"\"{{ prompt.text }}\"\"\"
+    return {
+        "name": "{{ prompt.name }}",
+        "arguments": [{% for arg in prompt.args.split(', ') if arg %}"{{ arg.strip() }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+        "description": "{{ prompt.desc }}",
+        "text": "{{ prompt.text }}"
+    }
 
 {% endfor %}
 if __name__ == "__main__":
