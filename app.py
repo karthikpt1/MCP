@@ -342,7 +342,8 @@ from openai import OpenAI
 
 def auto_generate_prompts(tools, api_key=None, provider="openai"):
     """
-    Batch send all tools to the LLM and get multiple prompt templates for each.
+    Generate MCP-compliant prompt templates for API tools.
+    One prompt per tool with specific arguments matching the tool's parameters.
     Supports both OpenAI and Groq providers.
     """
     if provider == "groq":
@@ -356,13 +357,6 @@ def auto_generate_prompts(tools, api_key=None, provider="openai"):
             client = OpenAI()
         model = "gpt-4o"
 
-    instructions = [
-        {
-            "role": "system",
-            "content": "You are an expert assistant that generates useful and safe prompt templates for API tools."
-        }
-    ]
-
     tool_descriptions = []
     for t in tools:
         args = ", ".join(t["args"].keys())
@@ -373,73 +367,105 @@ def auto_generate_prompts(tools, api_key=None, provider="openai"):
     joined = "\n\n---\n\n".join(tool_descriptions)
 
     user_msg = f"""
-    For each API tool below, generate exactly ONE useful prompt template that describes how to use the tool effectively.
+You are an expert at creating MCP (Model Context Protocol) prompt templates for API tools.
 
-    For each template, return only the text. Label it clearly with the tool name.
+For EACH API tool below, generate exactly ONE prompt template following MCP standards:
 
-    Tools:
-    {joined}
+1. Prompt Name: Create a descriptive name based on the tool's purpose
+2. Prompt Arguments: Extract relevant arguments from the tool's parameter list (comma-separated)
+3. Prompt Text: Write a clear, actionable instruction that uses {{{{argument_placeholders}}}} to reference the arguments
+
+MCP Prompt Format:
+- Name: [Tool-related action name]
+- Arguments: [Extracted from tool args, comma-separated]
+- Description: [One-line description of what the prompt does]
+- Text: [Template that can use {{{{arg_name}}}} placeholders]
+
+For example, if a tool has arguments (id, limit, sort), the prompt might use these in the template.
+
+Tools:
+{joined}
+
+Generate exactly one complete MCP prompt template per tool. Format each as:
+---
+Tool: [tool_name]
+Name: [prompt_name]
+Arguments: [arg1, arg2, ...]
+Description: [description]
+Text: [template text with placeholders]
+---
     """
 
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that generates API prompts."},
+            {"role": "system", "content": "You are a helpful assistant that generates MCP-compliant prompts for API tools."},
             {"role": "user", "content": user_msg}
         ],
         temperature=0.7,
-        max_tokens=800
+        max_tokens=1200
     )
 
     text = response.choices[0].message.content.strip()
 
     all_prompts = []
     current_tool = None
-    tool_prompt_lines = []
+    current_prompt = {
+        "name": "",
+        "args": "",
+        "text": "",
+        "desc": ""
+    }
+    
     lines = text.split("\n")
     
     for line in lines:
         line = line.strip()
         
-        # Skip empty lines and common formatting
-        if not line or line in ["---", "---", "****"]:
-            continue
-        
-        # Detect tool headers (multiple formats: "Tool:", "### Tool:", "**Tool:")
-        is_tool_header = any(tool["name"].lower() in line.lower() for tool in tools)
-        
-        if is_tool_header:
-            # Save previous tool's prompt if exists
-            if current_tool and tool_prompt_lines:
-                combined_text = " ".join(tool_prompt_lines)
+        # Skip empty lines and separators
+        if not line or line == "---":
+            # If we have a complete prompt, save it
+            if current_prompt["name"] and current_prompt["text"]:
                 all_prompts.append({
-                    "name": current_tool,
-                    "args": "",
-                    "text": combined_text,
-                    "desc": f"Auto-generated prompt for {current_tool}"
+                    "name": current_prompt["name"],
+                    "args": current_prompt["args"],
+                    "text": current_prompt["text"],
+                    "desc": current_prompt["desc"]
                 })
-            
-            # Extract tool name from the line
-            for tool in tools:
-                if tool["name"].lower() in line.lower():
-                    current_tool = tool["name"]
-                    tool_prompt_lines = []
-                    break
-        # Skip metadata lines
-        elif line.lower().startswith("for each") or line.lower().startswith("tools:"):
+                current_prompt = {
+                    "name": "",
+                    "args": "",
+                    "text": "",
+                    "desc": ""
+                }
             continue
-        # Capture non-empty lines as part of the current tool's prompt
-        elif current_tool and len(line) > 5:  # Avoid single-word lines
-            tool_prompt_lines.append(line)
+        
+        # Parse MCP format lines
+        if line.lower().startswith("tool:"):
+            current_tool = line.replace("Tool:", "").replace("tool:", "").strip()
+        elif line.lower().startswith("name:"):
+            current_prompt["name"] = line.replace("Name:", "").replace("name:", "").strip()
+        elif line.lower().startswith("arguments:"):
+            current_prompt["args"] = line.replace("Arguments:", "").replace("arguments:", "").strip()
+        elif line.lower().startswith("description:"):
+            current_prompt["desc"] = line.replace("Description:", "").replace("description:", "").strip()
+        elif line.lower().startswith("text:"):
+            # Capture text after "Text:" and continue on next lines
+            current_prompt["text"] = line.replace("Text:", "").replace("text:", "").strip()
+        elif current_prompt["name"] and line and not line.lower().startswith(("tool:", "name:", "arguments:", "description:")):
+            # Continue capturing multi-line text
+            if current_prompt["text"]:
+                current_prompt["text"] += " " + line
+            else:
+                current_prompt["text"] = line
     
-    # Don't forget the last tool
-    if current_tool and tool_prompt_lines:
-        combined_text = " ".join(tool_prompt_lines)
+    # Don't forget the last prompt
+    if current_prompt["name"] and current_prompt["text"]:
         all_prompts.append({
-            "name": current_tool,
-            "args": "",
-            "text": combined_text,
-            "desc": f"Auto-generated prompt for {current_tool}"
+            "name": current_prompt["name"],
+            "args": current_prompt["args"],
+            "text": current_prompt["text"],
+            "desc": current_prompt["desc"]
         })
     
     return all_prompts
