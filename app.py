@@ -530,7 +530,7 @@ class {{ model }}(BaseModel):
 {% endfor %}
 
 {% endfor %}
-# --------- HTTP Resilience: Session with Retry Strategy ---------
+# --------- HTTP Resilience & Helper Functions ---------
 def _create_session_with_retries():
     session = requests.Session()
     retry_strategy = Retry(
@@ -543,6 +543,23 @@ def _create_session_with_retries():
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+def _extract_path_params(base_url, args):
+    \"\"\"Extract and substitute path parameters from URL.\"\"\"
+    remaining = args.copy()
+    path_params = re.findall(r"{(.*?)}", base_url)
+    for param in path_params:
+        if param in remaining:
+            base_url = base_url.replace("{" + param + "}", str(remaining.pop(param)))
+    return base_url, remaining
+
+def _to_dict(obj):
+    \"\"\"Convert Pydantic model or dict to dict.\"\"\"
+    if hasattr(obj, 'dict') and callable(obj.dict):
+        return obj.dict()
+    elif isinstance(obj, dict):
+        return obj
+    return obj
 
 _session = _create_session_with_retries()
 # -------------------------------------------------------------------
@@ -557,13 +574,7 @@ def {{ tool.name }}({% for arg, type in tool.args.items() %}{{ arg }}: {{ type }
 
     args_dict = { {% for arg in tool.args.keys() %}"{{ arg }}": {{ arg }}{% if not loop.last %}, {% endif %}{% endfor %} }
 
-    base_url = "{{ tool.url }}"
-    remaining_args = args_dict.copy()
-
-    path_params = re.findall(r"{(.*?)}", base_url)
-    for param in path_params:
-        if param in remaining_args:
-            base_url = base_url.replace("{" + param + "}", str(remaining_args.pop(param)))
+    base_url, remaining_args = _extract_path_params("{{ tool.url }}", args_dict)
 
     headers = {}
     {% if tool.auth and tool.auth != 'None' %}
@@ -576,37 +587,27 @@ def {{ tool.name }}({% for arg, type in tool.args.items() %}{{ arg }}: {{ type }
 
     payload = None
     {% if tool.body_model %}
-    body_data = remaining_args.pop("body")
-    {% if tool.has_file_fields %}
-    # For file uploads, use multipart/form-data instead of JSON
-    payload = {{ tool.body_model }}(**body_data).dict() if isinstance(body_data, dict) else body_data.dict()
-    # Remove file field from headers so requests can set proper Content-Type for multipart
-    headers.pop('Content-Type', None)
-    {% else %}
-    payload = {{ tool.body_model }}(**body_data).dict() if isinstance(body_data, dict) else body_data.dict()
-    {% endif %}
+    body_data = remaining_args.pop("body", None)
+    if body_data:
+        payload = _to_dict(body_data)
     {% endif %}
 
-    # Send remaining args as query params for GET, or for other methods if they exist
     query_params = remaining_args if remaining_args else None
 
     try:
-        # Only send json payload for POST/PUT/PATCH/DELETE, not for GET
         method_lower = "{{ tool.method }}".lower()
         request_kwargs = {
             "params": query_params,
             "headers": headers,
             "timeout": 15
         }
-        {% if tool.has_file_fields %}
-        # For file uploads, use files parameter (multipart/form-data)
+        
         if method_lower in ["post", "put", "patch", "delete"] and payload is not None:
+            {% if tool.has_file_fields %}
             request_kwargs["files"] = payload
-        {% else %}
-        # For regular JSON payloads, use json parameter
-        if method_lower in ["post", "put", "patch", "delete"] and payload is not None:
+            {% else %}
             request_kwargs["json"] = payload
-        {% endif %}
+            {% endif %}
         
         response = _session.{{ tool.method.lower() }}(base_url, **request_kwargs)
         response.raise_for_status()
@@ -615,9 +616,10 @@ def {{ tool.name }}({% for arg, type in tool.args.items() %}{{ arg }}: {{ type }
         return {"error": str(e), "url_attempted": base_url}
 
 {% endfor %}
+# --------- MCP Prompts ---------
 {% for prompt in prompts %}
 @mcp.prompt()
-def {{ prompt.name }}():
+def {{ prompt.name }}_prompt():
     \"\"\"{{ prompt.desc }}\"\"\"
     return {
         "name": "{{ prompt.name }}",
