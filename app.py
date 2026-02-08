@@ -156,7 +156,7 @@ def swagger_to_tools(swagger_text):
 
     is_openapi = "openapi" in spec
 
-    # --- VALIDATION: Check required fields (Issue #4) ---
+    # --- VALIDATION: Check required fields ---
     if is_openapi:
         # OpenAPI 3.0 requires servers field
         servers = spec.get("servers", [])
@@ -216,7 +216,7 @@ def swagger_to_tools(swagger_text):
                 "If your API has no version path, use: `\"basePath\": \"/\"`"
             )
         
-        # Construct base_url with validation (Issue #1)
+        # Construct base_url with validation 
         base_url = f"{schemes[0]}://{host}{base_path}"
         paths = spec.get("paths", {})
         security_schemes = spec.get("securityDefinitions", {})
@@ -257,8 +257,11 @@ def swagger_to_tools(swagger_text):
                     param_schema = param.get("schema", {})
                     if param_schema:
                         param_type = _map_schema_to_type(param_schema, spec, is_openapi)
+                    elif param.get("type") == "array" and "items" in param:
+                        # Swagger 2.0: array parameter with items at parameter level
+                        param_type = _map_schema_to_type(param, spec, is_openapi=False)
                     else:
-                        # Swagger 2.0: type is directly on parameter, not nested in schema
+                        # Swagger 2.0: non-array type directly on parameter
                         raw_type = param.get("type", "str")
                         param_type = _normalize_type(raw_type)
                     args[p_name] = param_type
@@ -270,8 +273,12 @@ def swagger_to_tools(swagger_text):
                 elif p_in == "formData":
                     # Swagger 2.0: form data parameters
                     has_body = True
-                    raw_type = param.get("type", "str")
-                    param_type = _normalize_type(raw_type)
+                    if param.get("type") == "array" and "items" in param:
+                        # Array field with items at parameter level
+                        param_type = _map_schema_to_type(param, spec, is_openapi=False)
+                    else:
+                        raw_type = param.get("type", "str")
+                        param_type = _normalize_type(raw_type)
                     body_fields[p_name] = param_type
 
             # OpenAPI 3.0: requestBody
