@@ -369,19 +369,26 @@ def auto_generate_prompts(tools, api_key=None, provider="openai"):
     user_msg = f"""
 You are an expert at creating MCP (Model Context Protocol) prompt templates for API tools.
 
-For EACH API tool below, generate exactly ONE prompt template following MCP standards:
+For EACH API tool below, generate exactly ONE prompt template following MCP standards.
 
-1. Prompt Name: Create a descriptive name based on the tool's purpose
+CRITICAL: The Prompt Name MUST be EXACTLY the same as the tool name for auto-linking in MCP.
+
+Format requirement:
+1. Prompt Name: MUST be identical to the tool name (this enables MCP auto-linking)
 2. Prompt Arguments: Extract relevant arguments from the tool's parameter list (comma-separated)
 3. Prompt Text: Write a clear, actionable instruction that uses {{{{argument_placeholders}}}} to reference the arguments
 
 MCP Prompt Format:
-- Name: [Tool-related action name]
+- Name: [ToolName] - MUST EXACTLY match the tool name
 - Arguments: [Extracted from tool args, comma-separated]
 - Description: [One-line description of what the prompt does]
 - Text: [Template that can use {{{{arg_name}}}} placeholders]
 
-For example, if a tool has arguments (id, limit, sort), the prompt might use these in the template.
+For example, if a tool is "GetUser" with arguments (id, limit, sort):
+- Name: GetUser (EXACTLY the tool name)
+- Arguments: id, limit, sort
+- Description: Fetch user details by ID
+- Text: "Query user with ID {{{{id}}}} and retrieve up to {{{{limit}}}} records, sorted by {{{{sort}}}}"
 
 Tools:
 {joined}
@@ -389,7 +396,7 @@ Tools:
 Generate exactly one complete MCP prompt template per tool. Format each as:
 ---
 Tool: [tool_name]
-Name: [prompt_name]
+Name: [tool_name] (MUST BE IDENTICAL)
 Arguments: [arg1, arg2, ...]
 Description: [description]
 Text: [template text with placeholders]
@@ -426,6 +433,9 @@ Text: [template text with placeholders]
         if not line or line == "---":
             # If we have a complete prompt, save it
             if current_prompt["name"] and current_prompt["text"]:
+                # Force prompt name to match tool name for MCP auto-linking
+                if current_tool:
+                    current_prompt["name"] = current_tool
                 all_prompts.append({
                     "name": current_prompt["name"],
                     "args": current_prompt["args"],
